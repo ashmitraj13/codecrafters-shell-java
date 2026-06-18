@@ -12,8 +12,12 @@ public class Main {
                 break;
             }
 
-            String input = sc.nextLine();
-            System.out.println(input + ": command not found");
+            String st = sc.nextLine();
+            if (st.equals("exit")) {
+                break;
+            }
+
+            System.out.println(st + ": command not found");
         }
     }
 }
