@@ -18,7 +18,18 @@ public class Main {
             }
 
             String[] parts = trimmed.split("\\s+", 2);
-            if (parts.length > 0 && parts[0].equals("echo")) {
+            if (parts.length > 0 && parts[0].equals("type")) {
+                if (parts.length > 1) {
+                    String target = parts[1];
+                    if (target.equals("echo") || target.equals("exit") || target.equals("type")) {
+                        System.out.println(target + " is a shell builtin");
+                    } else {
+                        System.out.println(target + ": not found");
+                    }
+                } else {
+                    System.out.println();
+                }
+            } else if (parts.length > 0 && parts[0].equals("echo")) {
                 if (parts.length > 1) {
                     System.out.println(parts[1]);
                 } else {
