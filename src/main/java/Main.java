@@ -1,4 +1,6 @@
 import java.util.Scanner;
+import java.io.File;
+import java.nio.file.Files;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -24,7 +26,31 @@ public class Main {
                     if (target.equals("echo") || target.equals("exit") || target.equals("type")) {
                         System.out.println(target + " is a shell builtin");
                     } else {
-                        System.out.println(target + ": not found");
+                        String pathEnv = System.getenv("PATH");
+                        if (pathEnv == null) pathEnv = "";
+                        boolean found = false;
+                        for (String dir : pathEnv.split(File.pathSeparator)) {
+                            if (dir.length() == 0) dir = ".";
+                            File candidate = new File(dir, target);
+                            if (candidate.exists()) {
+                                try {
+                                    if (Files.isExecutable(candidate.toPath())) {
+                                        System.out.println(target + " is " + candidate.getAbsolutePath());
+                                        found = true;
+                                        break;
+                                    } else {
+                                        // exists but not executable: skip
+                                        continue;
+                                    }
+                                } catch (Exception e) {
+                                    // On any error checking executability, skip this candidate
+                                    continue;
+                                }
+                            }
+                        }
+                        if (!found) {
+                            System.out.println(target + ": not found");
+                        }
                     }
                 } else {
                     System.out.println();
