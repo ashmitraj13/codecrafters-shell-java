@@ -89,14 +89,15 @@ public class Main {
         sc.close();
     }
 
-        // Tokenize input respecting single quotes.
+        // Tokenize input respecting single and double quotes.
         // - Whitespace outside quotes splits tokens (consecutive whitespace collapsed)
-        // - Text inside single quotes is taken literally (spaces preserved)
+        // - Text inside single or double quotes is taken literally (spaces preserved)
         // - Adjacent quoted and unquoted parts are concatenated into a single token
         private static String[] tokenize(String line) {
             List<String> tokens = new ArrayList<>();
             StringBuilder cur = new StringBuilder();
             boolean inSingle = false;
+            boolean inDouble = false;
             for (int i = 0; i < line.length(); i++) {
                 char c = line.charAt(i);
                 if (inSingle) {
@@ -105,9 +106,17 @@ public class Main {
                     } else {
                         cur.append(c);
                     }
+                } else if (inDouble) {
+                    if (c == '"') {
+                        inDouble = false;
+                    } else {
+                        cur.append(c);
+                    }
                 } else {
                     if (c == '\'') {
                         inSingle = true;
+                    } else if (c == '"') {
+                        inDouble = true;
                     } else if (Character.isWhitespace(c)) {
                         if (cur.length() > 0) {
                             tokens.add(cur.toString());
@@ -119,10 +128,9 @@ public class Main {
                     }
                 }
             }
-            // If still in single quote at end, treat as having taken all remaining literally
-            if (inSingle) {
-                // trailing unmatched single quote: treat as if it was closed at end
-                // nothing special to do
+            // If still in single or double quote at end, treat as having taken all remaining literally
+            if (inSingle || inDouble) {
+                // nothing special to do; unclosed quotes collapse to end of line
             }
             if (cur.length() > 0) tokens.add(cur.toString());
             return tokens.toArray(new String[0]);
