@@ -40,19 +40,22 @@ public class Main {
             } else if (Objects.equals(command, "cd")) {
                 if (rest.length > 0) {
                     String target = rest[0];
+                    File f;
                     if (target.startsWith("/")) {
-                        File f = new File(target);
-                        if (f.exists() && f.isDirectory()) {
-                            try {
-                                currentDir = f.getCanonicalPath();
-                            } catch (IOException e) {
-                                System.out.println("cd: " + target + ": No such file or directory");
-                            }
+                        f = new File(target);
+                    } else {
+                        // Resolve relative paths against currentDir
+                        f = new File(currentDir, target);
+                    }
+
+                    try {
+                        File canon = f.getCanonicalFile();
+                        if (canon.exists() && canon.isDirectory()) {
+                            currentDir = canon.getCanonicalPath();
                         } else {
                             System.out.println("cd: " + target + ": No such file or directory");
                         }
-                    } else {
-                        // For this stage, only absolute paths are required; ignore others
+                    } catch (IOException e) {
                         System.out.println("cd: " + target + ": No such file or directory");
                     }
                 } else {
