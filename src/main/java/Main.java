@@ -41,10 +41,25 @@ public class Main {
                 if (rest.length > 0) {
                     String target = rest[0];
                     File f;
-                    if (target.startsWith("/")) {
+                    if (target.equals("~") || target.startsWith("~/")) {
+                        String home = System.getenv("HOME");
+                        if (home == null || home.isEmpty()) {
+                            home = System.getProperty("user.home");
+                        }
+                        if (home == null) {
+                            System.out.println("cd: " + target + ": No such file or directory");
+                            continue;
+                        }
+                        if (target.equals("~")) {
+                            f = new File(home);
+                        } else {
+                            // target starts with ~/
+                            f = new File(home, target.substring(2));
+                        }
+                    } else if (target.startsWith("/")) {
                         f = new File(target);
                     } else {
-                        // Resolve relative paths against currentDir
+                        // relative path
                         f = new File(currentDir, target);
                     }
 
