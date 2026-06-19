@@ -34,6 +34,12 @@ public class Main {
                 } else {
                     System.out.println();
                 }
+            } else if (Objects.equals(command, "pwd")) {
+                try {
+                    System.out.println(new File(".").getCanonicalPath());
+                } catch (IOException e) {
+                    System.out.println("pwd: failed to get current directory");
+                }
             } else {
                 String executablePath = getExecutable(command);
                 if (executablePath != null) {
@@ -81,7 +87,7 @@ public class Main {
     }
 
     public static String type(String command) {
-        String[] commands = {"exit", "echo", "type"};
+        String[] commands = {"exit", "echo", "type", "pwd"};
         for (String text : commands) {
             if (Objects.equals(text, command)) return command + " is a shell builtin";
         }
