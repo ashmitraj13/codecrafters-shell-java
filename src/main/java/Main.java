@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Scanner;
 
 public class Main {
+    private static String currentDir = System.getProperty("user.dir");
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
         while (true) {
@@ -35,10 +36,27 @@ public class Main {
                     System.out.println();
                 }
             } else if (Objects.equals(command, "pwd")) {
-                try {
-                    System.out.println(new File(".").getCanonicalPath());
-                } catch (IOException e) {
-                    System.out.println("pwd: failed to get current directory");
+                System.out.println(currentDir);
+            } else if (Objects.equals(command, "cd")) {
+                if (rest.length > 0) {
+                    String target = rest[0];
+                    if (target.startsWith("/")) {
+                        File f = new File(target);
+                        if (f.exists() && f.isDirectory()) {
+                            try {
+                                currentDir = f.getCanonicalPath();
+                            } catch (IOException e) {
+                                System.out.println("cd: " + target + ": No such file or directory");
+                            }
+                        } else {
+                            System.out.println("cd: " + target + ": No such file or directory");
+                        }
+                    } else {
+                        // For this stage, only absolute paths are required; ignore others
+                        System.out.println("cd: " + target + ": No such file or directory");
+                    }
+                } else {
+                    // no-op for now when no args
                 }
             } else {
                 String executablePath = getExecutable(command);
@@ -63,6 +81,8 @@ public class Main {
             }
 
             ProcessBuilder pb = new ProcessBuilder(cmd);
+            // Set the child's working directory to the shell's currentDir
+            pb.directory(new File(currentDir));
             // Ensure the directory containing the resolved executable is first in PATH
             String foundDir = new File(executablePath).getParent();
             String origPath = System.getenv("PATH");
@@ -87,7 +107,7 @@ public class Main {
     }
 
     public static String type(String command) {
-        String[] commands = {"exit", "echo", "type", "pwd"};
+        String[] commands = {"exit", "echo", "type", "pwd", "cd"};
         for (String text : commands) {
             if (Objects.equals(text, command)) return command + " is a shell builtin";
         }
