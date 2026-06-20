@@ -14,11 +14,13 @@ public class Main {
     // Helper class to hold redirection information
     static class RedirectionInfo {
         String outputFile;
-        int fd; // 1 for stdout, 2 for stderr (future)
+        int fd; // 1 for stdout, 2 for stderr
+        boolean append; // true for >> or 1>>
 
-        RedirectionInfo(String file, int fileDescriptor) {
+        RedirectionInfo(String file, int fileDescriptor, boolean appendFlag) {
             this.outputFile = file;
             this.fd = fileDescriptor;
+            this.append = appendFlag;
         }
     }
 
@@ -57,7 +59,8 @@ public class Main {
                     ensureEmptyFile(redirect.outputFile);
                     System.out.println(output);
                 } else if (redirect != null && redirect.fd == 1) {
-                    writeToFile(output, redirect.outputFile);
+                    if (redirect.append) appendToFile(output, redirect.outputFile);
+                    else writeToFile(output, redirect.outputFile);
                 } else {
                     System.out.println(output);
                 }
@@ -72,7 +75,8 @@ public class Main {
                     ensureEmptyFile(redirect.outputFile);
                     System.out.println(output);
                 } else if (redirect != null && redirect.fd == 1) {
-                    writeToFile(output, redirect.outputFile);
+                    if (redirect.append) appendToFile(output, redirect.outputFile);
+                    else writeToFile(output, redirect.outputFile);
                 } else {
                     System.out.println(output);
                 }
@@ -81,7 +85,8 @@ public class Main {
                     ensureEmptyFile(redirect.outputFile);
                     System.out.println(currentDir);
                 } else if (redirect != null && redirect.fd == 1) {
-                    writeToFile(currentDir, redirect.outputFile);
+                    if (redirect.append) appendToFile(currentDir, redirect.outputFile);
+                    else writeToFile(currentDir, redirect.outputFile);
                 } else {
                     System.out.println(currentDir);
                 }
@@ -240,12 +245,22 @@ public class Main {
 
             // Handle redirection
             if (redirect != null && redirect.fd == 1) {
-                pb.redirectOutput(new File(redirect.outputFile));
+                File f = new File(redirect.outputFile);
+                if (redirect.append) {
+                    pb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
+                } else {
+                    pb.redirectOutput(f);
+                }
             } else {
                 pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
             }
             if (redirect != null && redirect.fd == 2) {
-                pb.redirectError(new File(redirect.outputFile));
+                File f = new File(redirect.outputFile);
+                if (redirect.append) {
+                    pb.redirectError(ProcessBuilder.Redirect.appendTo(f));
+                } else {
+                    pb.redirectError(f);
+                }
             } else {
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
             }
@@ -292,16 +307,19 @@ public class Main {
         return null;
     }
 
-    // Parse redirection operators (>, 1>, 2>) from the token list
+    // Parse redirection operators (>, 1>, >>, 1>>, 2>, 2>>) from the token list
     private static RedirectionInfo parseRedirection(String[] words) {
         for (int i = 0; i < words.length; i++) {
-            if (">" .equals(words[i]) || "1>".equals(words[i])) {
+            String w = words[i];
+            if (">".equals(w) || "1>".equals(w) || ">>".equals(w) || "1>>".equals(w)) {
+                boolean append = ">>".equals(w) || "1>>".equals(w);
                 if (i + 1 < words.length) {
-                    return new RedirectionInfo(words[i + 1], 1);
+                    return new RedirectionInfo(words[i + 1], 1, append);
                 }
-            } else if ("2>".equals(words[i])) {
+            } else if ("2>".equals(w) || "2>>".equals(w)) {
+                boolean append = "2>>".equals(w);
                 if (i + 1 < words.length) {
-                    return new RedirectionInfo(words[i + 1], 2);
+                    return new RedirectionInfo(words[i + 1], 2, append);
                 }
             }
         }
@@ -312,7 +330,7 @@ public class Main {
     private static String[] removeRedirectionTokens(String[] words) {
         List<String> result = new ArrayList<>();
         for (int i = 0; i < words.length; i++) {
-            if (">" .equals(words[i]) || "1>".equals(words[i]) || "2>".equals(words[i])) {
+            if (">".equals(words[i]) || "1>".equals(words[i]) || ">>".equals(words[i]) || "1>>".equals(words[i]) || "2>".equals(words[i]) || "2>>".equals(words[i])) {
                 // Skip the operator and the following filename
                 i++; // skip filename
             } else {
@@ -334,6 +352,21 @@ public class Main {
             writer.close();
         } catch (IOException e) {
             System.err.println("Error writing to file: " + e.getMessage());
+        }
+    }
+
+    // Append a string to a file, creating it if it doesn't exist
+    private static void appendToFile(String content, String filename) {
+        try {
+            File f = new File(filename);
+            File parent = f.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            FileWriter writer = new FileWriter(f, true);
+            writer.write(content);
+            writer.write("\n");
+            writer.close();
+        } catch (IOException e) {
+            System.err.println("Error appending to file: " + e.getMessage());
         }
     }
 
