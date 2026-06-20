@@ -303,10 +303,10 @@ public class Main {
             String rightCmd = rightWords[0];
             String leftExec = getExecutable(leftCmd);
             String rightExec = getExecutable(rightCmd);
-            if (leftExec == null || rightExec == null) {
-                System.out.println("command: not found");
-                return;
-            }
+            boolean leftIsBuiltin = isBuiltin(leftCmd);
+            boolean rightIsBuiltin = isBuiltin(rightCmd);
+            if (!leftIsBuiltin && leftExec == null) { System.out.println(leftCmd + ": not found"); return; }
+            if (!rightIsBuiltin && rightExec == null) { System.out.println(rightCmd + ": not found"); return; }
 
             List<String> leftList = new ArrayList<>();
             String leftProg = leftCmd.contains(File.separator) ? leftCmd : new File(leftCmd).getName();
@@ -360,34 +360,126 @@ public class Main {
                 if (rightRedirect.append) pb2.redirectError(ProcessBuilder.Redirect.appendTo(f)); else pb2.redirectError(f);
             } else pb2.redirectError(ProcessBuilder.Redirect.INHERIT);
 
-            Process p1 = pb1.start();
-            Process p2 = pb2.start();
-
-            // Pump p1 stdout -> p2 stdin
-            Thread pump = new Thread(() -> {
-                try (java.io.InputStream in = p1.getInputStream(); java.io.OutputStream out = p2.getOutputStream()) {
-                    byte[] buf = new byte[8192];
-                    int r;
-                    while ((r = in.read(buf)) >= 0) {
-                        if (r > 0) out.write(buf, 0, r);
-                        out.flush();
-                    }
-                } catch (IOException e) {
-                    // ignore
-                } finally {
-                    try { p2.getOutputStream().close(); } catch (Exception e) {}
+            // Handle combinations of builtin/external
+            if (leftIsBuiltin && !rightIsBuiltin) {
+                // start right external
+                Process p2 = pb2.start();
+                // write builtin output to p2 stdin or to file if leftRedirect.fd == 1
+                if (leftRedirect != null && leftRedirect.fd == 1) {
+                    if (leftRedirect.append) appendToFile(executeBuiltinCapture(leftWords), leftRedirect.outputFile);
+                    else writeToFile(executeBuiltinCapture(leftWords), leftRedirect.outputFile);
+                    p2.getOutputStream().close();
+                } else {
+                    // stream to p2 stdin
+                    Thread t = new Thread(() -> {
+                        try (java.io.OutputStream out = p2.getOutputStream()) {
+                            runBuiltinToStream(leftWords, out);
+                        } catch (Exception e) {}
+                    });
+                    t.start();
                 }
-            });
-            pump.start();
+                p2.waitFor();
+                return;
+            } else if (!leftIsBuiltin && rightIsBuiltin) {
+                // left external, right builtin
+                Process p1 = pb1.start();
+                // drain p1 stdout (builtin may ignore stdin)
+                Thread drain = new Thread(() -> {
+                    try (java.io.InputStream in = p1.getInputStream()) {
+                        byte[] buf = new byte[8192];
+                        while (in.read(buf) >= 0) { /* discard */ }
+                    } catch (IOException e) {}
+                });
+                drain.start();
+                p1.waitFor();
+                drain.join();
+                // run right builtin, directing output according to rightRedirect
+                if (rightRedirect != null && rightRedirect.fd == 1) {
+                    if (rightRedirect.append) appendToFile(executeBuiltinCapture(rightWords), rightRedirect.outputFile);
+                    else writeToFile(executeBuiltinCapture(rightWords), rightRedirect.outputFile);
+                } else {
+                    runBuiltinToStream(rightWords, System.out);
+                }
+                return;
+            } else if (leftIsBuiltin && rightIsBuiltin) {
+                // both builtins: run left into buffer, then run right
+                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                runBuiltinToStream(leftWords, buf);
+                java.io.InputStream in = new java.io.ByteArrayInputStream(buf.toByteArray());
+                // for simplicity, right builtin will ignore stdin; just execute and send to stdout or file
+                if (rightRedirect != null && rightRedirect.fd == 1) {
+                    if (rightRedirect.append) appendToFile(executeBuiltinCapture(rightWords), rightRedirect.outputFile);
+                    else writeToFile(executeBuiltinCapture(rightWords), rightRedirect.outputFile);
+                } else {
+                    runBuiltinToStream(rightWords, System.out);
+                }
+                return;
+            } else {
+                // both external: previous behavior
+                Process p1 = pb1.start();
+                Process p2 = pb2.start();
 
-            // wait for processes
-            int s2 = p2.waitFor();
-            // after p2 exits, ensure p1 is destroyed if still running
-            try { p1.waitFor(); } catch (InterruptedException e) { p1.destroy(); }
-            pump.join();
+                // Pump p1 stdout -> p2 stdin
+                Thread pump = new Thread(() -> {
+                    try (java.io.InputStream in = p1.getInputStream(); java.io.OutputStream out = p2.getOutputStream()) {
+                        byte[] buf = new byte[8192];
+                        int r;
+                        while ((r = in.read(buf)) >= 0) {
+                            if (r > 0) out.write(buf, 0, r);
+                            out.flush();
+                        }
+                    } catch (IOException e) {
+                        // ignore
+                    } finally {
+                        try { p2.getOutputStream().close(); } catch (Exception e) {}
+                    }
+                });
+                pump.start();
+
+                // wait for processes
+                int s2 = p2.waitFor();
+                try { p1.waitFor(); } catch (InterruptedException e) { p1.destroy(); }
+                pump.join();
+                return;
+            }
         } catch (IOException | InterruptedException e) {
             System.out.println("pipeline failed: " + e.getMessage());
         }
+    }
+
+    private static boolean isBuiltin(String cmd) {
+        return Arrays.asList("exit", "echo", "type", "pwd", "cd").contains(cmd);
+    }
+
+    // Execute a builtin and write its stdout to the provided OutputStream
+    private static void runBuiltinToStream(String[] words, java.io.OutputStream outStream) {
+        try {
+            String cmd = words[0];
+            String[] rest = Arrays.copyOfRange(words, 1, words.length);
+            java.io.PrintWriter out = new java.io.PrintWriter(outStream, true);
+            if (Objects.equals(cmd, "echo")) {
+                out.println(String.join(" ", rest));
+            } else if (Objects.equals(cmd, "type")) {
+                String output = rest.length > 0 ? type(rest[0]) : "";
+                out.println(output);
+            } else if (Objects.equals(cmd, "pwd")) {
+                out.println(currentDir);
+            } else if (Objects.equals(cmd, "cd")) {
+                // cd has no stdout
+            } else if (Objects.equals(cmd, "exit")) {
+                // exit handled by main loop; ignore here
+            }
+            out.flush();
+        } catch (Exception e) {
+            // ignore
+        }
+    }
+
+    // Execute builtin and capture its stdout as string
+    private static String executeBuiltinCapture(String[] words) {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        runBuiltinToStream(words, buf);
+        return buf.toString();
     }
 
     private static String quote(String s) {
