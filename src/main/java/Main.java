@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -9,6 +10,18 @@ import java.util.Scanner;
 
 public class Main {
     private static String currentDir = System.getProperty("user.dir");
+
+    // Helper class to hold redirection information
+    static class RedirectionInfo {
+        String outputFile;
+        int fd; // 1 for stdout, 2 for stderr (future)
+
+        RedirectionInfo(String file, int fileDescriptor) {
+            this.outputFile = file;
+            this.fd = fileDescriptor;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
         while (true) {
@@ -23,21 +36,45 @@ public class Main {
 
             String[] words = tokenize(trimmed);
             if (words.length == 0) continue;
+
+            // Parse redirection from tokens
+            RedirectionInfo redirect = parseRedirection(words);
+            if (redirect != null) {
+                // Remove redirection tokens from words
+                words = removeRedirectionTokens(words);
+            }
+
+            if (words.length == 0) continue;
             String command = words[0];
             String[] rest = Arrays.copyOfRange(words, 1, words.length);
 
             if (Objects.equals(command, "exit")) {
                 break;
             } else if (Objects.equals(command, "echo")) {
-                System.out.println(String.join(" ", rest));
-            } else if (Objects.equals(command, "type")) {
-                if (rest.length > 0) {
-                    System.out.println(type(rest[0]));
+                String output = String.join(" ", rest);
+                if (redirect != null) {
+                    writeToFile(output, redirect.outputFile);
                 } else {
-                    System.out.println();
+                    System.out.println(output);
+                }
+            } else if (Objects.equals(command, "type")) {
+                String output;
+                if (rest.length > 0) {
+                    output = type(rest[0]);
+                } else {
+                    output = "";
+                }
+                if (redirect != null) {
+                    writeToFile(output, redirect.outputFile);
+                } else {
+                    System.out.println(output);
                 }
             } else if (Objects.equals(command, "pwd")) {
-                System.out.println(currentDir);
+                if (redirect != null) {
+                    writeToFile(currentDir, redirect.outputFile);
+                } else {
+                    System.out.println(currentDir);
+                }
             } else if (Objects.equals(command, "cd")) {
                 if (rest.length > 0) {
                     String target = rest[0];
@@ -80,7 +117,7 @@ public class Main {
             } else {
                 String executablePath = getExecutable(command);
                 if (executablePath != null) {
-                    runExternal(command, executablePath, rest);
+                    runExternal(command, executablePath, rest, redirect);
                 } else {
                     System.out.println(command + ": not found");
                 }
@@ -163,7 +200,7 @@ public class Main {
             return tokens.toArray(new String[0]);
         }
 
-    private static void runExternal(String command, String executablePath, String[] args) {
+    private static void runExternal(String command, String executablePath, String[] args, RedirectionInfo redirect) {
         try {
             List<String> cmd = new ArrayList<>();
             String progName = command.contains(File.separator) ? command : new File(command).getName();
@@ -184,7 +221,12 @@ public class Main {
                 pb.environment().put("PATH", foundDir + File.pathSeparator + origPath);
             }
 
-            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            // Handle redirection
+            if (redirect != null) {
+                pb.redirectOutput(new File(redirect.outputFile));
+            } else {
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            }
             pb.redirectError(ProcessBuilder.Redirect.INHERIT);
             pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
@@ -227,5 +269,43 @@ public class Main {
             }
         }
         return null;
+    }
+
+    // Parse redirection operators (> or 1>) from the token list
+    private static RedirectionInfo parseRedirection(String[] words) {
+        for (int i = 0; i < words.length; i++) {
+            if (">".equals(words[i]) || "1>".equals(words[i])) {
+                if (i + 1 < words.length) {
+                    return new RedirectionInfo(words[i + 1], 1);
+                }
+            }
+        }
+        return null;
+    }
+
+    // Remove redirection operators and filenames from the token list
+    private static String[] removeRedirectionTokens(String[] words) {
+        List<String> result = new ArrayList<>();
+        for (int i = 0; i < words.length; i++) {
+            if (">".equals(words[i]) || "1>".equals(words[i])) {
+                // Skip the operator and the following filename
+                i++; // skip filename
+            } else {
+                result.add(words[i]);
+            }
+        }
+        return result.toArray(new String[0]);
+    }
+
+    // Write a string to a file, creating it if it doesn't exist, overwriting if it does
+    private static void writeToFile(String content, String filename) {
+        try {
+            FileWriter writer = new FileWriter(filename);
+            writer.write(content);
+            writer.write("\n");
+            writer.close();
+        } catch (IOException e) {
+            System.err.println("Error writing to file: " + e.getMessage());
+        }
     }
 }
