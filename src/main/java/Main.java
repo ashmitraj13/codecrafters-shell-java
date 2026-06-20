@@ -278,13 +278,25 @@ public class Main {
                     System.out.println(currentDir);
                 }
             } else if (Objects.equals(command, "jobs")) {
+                // Find max and second-max job IDs in current list for dynamic marker assignment
+                int maxJobId = -1;
+                int secondMaxJobId = -1;
+                for (Job job : jobs) {
+                    if (job.id > maxJobId) {
+                        secondMaxJobId = maxJobId;
+                        maxJobId = job.id;
+                    } else if (job.id > secondMaxJobId) {
+                        secondMaxJobId = job.id;
+                    }
+                }
+                
                 List<Job> jobsToRemove = new ArrayList<>();
                 for (Job job : jobs) {
                     boolean isRunning = job.process.isAlive();
                     String status = isRunning ? "Running" : "Done";
                     String marker;
-                    if (job.id == currentJobId) marker = "+";
-                    else if (job.id == previousJobId) marker = "-";
+                    if (job.id == maxJobId) marker = "+";
+                    else if (job.id == secondMaxJobId) marker = "-";
                     else marker = " ";
                     String suffix = isRunning ? " &" : "";
                     System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + suffix);
