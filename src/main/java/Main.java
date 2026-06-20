@@ -169,6 +169,8 @@ public class Main {
     }
 
     private static int nextJobId = 1;
+    private static int currentJobId = -1;   // Most recently started job
+    private static int previousJobId = -1;  // Second most recently started job
 
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
@@ -278,7 +280,10 @@ public class Main {
             } else if (Objects.equals(command, "jobs")) {
                 for (Job job : jobs) {
                     String status = job.process.isAlive() ? "Running" : "Done";
-                    String marker = job.process.isAlive() ? "+" : " ";
+                    String marker;
+                    if (job.id == currentJobId) marker = "+";
+                    else if (job.id == previousJobId) marker = "-";
+                    else marker = " ";
                     System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + " &");
                 }
             } else if (Objects.equals(command, "cd")) {
@@ -460,6 +465,8 @@ public class Main {
             Process process = pb.start();
             if (background) {
                 int jobId = nextJobId++;
+                previousJobId = currentJobId;
+                currentJobId = jobId;
                 jobs.add(new Job(jobId, process, command + (args.length > 0 ? " " + String.join(" ", args) : "")));
                 System.out.println("[" + jobId + "] " + process.pid());
                 return;
