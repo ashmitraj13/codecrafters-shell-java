@@ -24,6 +24,136 @@ public class Main {
         }
     }
 
+    // Run a pipeline with N stages. Supports streaming for external-only pipelines,
+    // and a sequential capture fallback when builtins are involved.
+    private static void runPipelineChain(List<String[]> stages, List<RedirectionInfo> redirects) {
+        int n = stages.size();
+        boolean anyBuiltin = false;
+        for (String[] s : stages) if (isBuiltin(s[0])) anyBuiltin = true;
+
+        if (anyBuiltin) {
+            // Sequential fallback: capture output of each stage and feed to next
+            byte[] cur = null;
+            for (int i = 0; i < n; i++) {
+                String[] words = stages.get(i);
+                RedirectionInfo r = redirects.get(i);
+                if (isBuiltin(words[0])) {
+                    String out = executeBuiltinCapture(words);
+                    cur = out.getBytes();
+                } else {
+                    String exec = getExecutable(words[0]);
+                    if (exec == null) { System.out.println(words[0] + ": not found"); return; }
+                    List<String> cmd = new ArrayList<>();
+                    String progName = words[0].contains(File.separator) ? words[0] : new File(words[0]).getName();
+                    cmd.add(progName);
+                    for (int j = 1; j < words.length; j++) cmd.add(words[j]);
+                    ProcessBuilder pb = new ProcessBuilder(cmd);
+                    pb.directory(new File(currentDir));
+                    String foundDir = new File(exec).getParent();
+                    String origPath = System.getenv("PATH"); if (origPath == null) origPath = "";
+                    if (foundDir != null && !foundDir.isEmpty()) pb.environment().put("PATH", foundDir + File.pathSeparator + origPath);
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                    pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                    try {
+                        Process p = pb.start();
+                        if (cur != null) {
+                            try (java.io.OutputStream os = p.getOutputStream()) { os.write(cur); }
+                        } else {
+                            p.getOutputStream().close();
+                        }
+                        java.io.ByteArrayOutputStream bout = new java.io.ByteArrayOutputStream();
+                        try (java.io.InputStream in = p.getInputStream()) {
+                            byte[] buf = new byte[8192]; int rlen; while ((rlen = in.read(buf)) >= 0) if (rlen>0) bout.write(buf,0,rlen);
+                        }
+                        p.waitFor();
+                        cur = bout.toByteArray();
+                    } catch (IOException | InterruptedException e) {
+                        System.out.println("pipeline stage failed: " + e.getMessage());
+                        return;
+                    }
+                }
+            }
+            // Write final output according to last redirect
+            RedirectionInfo lastR = redirects.get(n-1);
+            if (lastR != null && lastR.fd == 1) {
+                String out = cur == null ? "" : new String(cur);
+                if (lastR.append) appendToFile(out, lastR.outputFile); else writeToFile(out, lastR.outputFile);
+            } else {
+                if (cur != null) System.out.print(new String(cur));
+            }
+            return;
+        }
+
+        // All external: streaming pipeline
+        try {
+            List<ProcessBuilder> pbs = new ArrayList<>();
+            List<Process> procs = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                String[] words = stages.get(i);
+                String exec = getExecutable(words[0]);
+                if (exec == null) { System.out.println(words[0] + ": not found"); return; }
+                List<String> cmd = new ArrayList<>();
+                String progName = words[0].contains(File.separator) ? words[0] : new File(words[0]).getName();
+                cmd.add(progName);
+                for (int j = 1; j < words.length; j++) cmd.add(words[j]);
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.directory(new File(currentDir));
+                // PATH
+                String foundDir = exec != null ? new File(exec).getParent() : null;
+                String origPath = System.getenv("PATH"); if (origPath == null) origPath = "";
+                if (foundDir != null && !foundDir.isEmpty()) pb.environment().put("PATH", foundDir + File.pathSeparator + origPath);
+                // redirects: middle stages use pipes
+                if (i == 0) {
+                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                } else {
+                    pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                }
+                if (i == n-1) {
+                    RedirectionInfo rr = redirects.get(i);
+                    if (rr != null && rr.fd == 1) {
+                        File f = new File(rr.outputFile);
+                        if (rr.append) pb.redirectOutput(ProcessBuilder.Redirect.appendTo(f)); else pb.redirectOutput(f);
+                    } else pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                } else {
+                    pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                }
+                RedirectionInfo rr2 = redirects.get(i);
+                if (rr2 != null && rr2.fd == 2) {
+                    File f = new File(rr2.outputFile);
+                    if (rr2.append) pb.redirectError(ProcessBuilder.Redirect.appendTo(f)); else pb.redirectError(f);
+                } else pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                pbs.add(pb);
+            }
+
+            // start processes
+            for (ProcessBuilder pb : pbs) procs.add(pb.start());
+
+            // connect pipelines
+            List<Thread> pumps = new ArrayList<>();
+            for (int i = 0; i < procs.size()-1; i++) {
+                Process a = procs.get(i);
+                Process b = procs.get(i+1);
+                Thread pump = new Thread(() -> {
+                    try (java.io.InputStream in = a.getInputStream(); java.io.OutputStream out = b.getOutputStream()) {
+                        byte[] buf = new byte[8192]; int r; while ((r = in.read(buf)) >= 0) { if (r>0) out.write(buf,0,r); out.flush(); }
+                    } catch (IOException e) {}
+                    try { b.getOutputStream().close(); } catch (Exception e) {}
+                });
+                pump.start(); pumps.add(pump);
+            }
+
+            // wait for last, then wait others
+            int lastIdx = procs.size()-1;
+            procs.get(lastIdx).waitFor();
+            for (Thread t : pumps) t.join();
+            for (int i = 0; i < procs.size()-1; i++) procs.get(i).waitFor();
+        } catch (IOException | InterruptedException e) {
+            System.out.println("pipeline failed: " + e.getMessage());
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
         while (true) {
@@ -39,23 +169,33 @@ public class Main {
             String[] words = tokenize(trimmed);
             if (words.length == 0) continue;
 
-            // Handle pipeline (single | between two commands)
-            int pipeIndex = -1;
-            for (int i = 0; i < words.length; i++) {
-                if ("|".equals(words[i])) { pipeIndex = i; break; }
-            }
+            // Handle pipelines with one or more '|' tokens
+            List<Integer> pipePositions = new ArrayList<>();
+            for (int i = 0; i < words.length; i++) if ("|".equals(words[i])) pipePositions.add(i);
+            if (!pipePositions.isEmpty()) {
+                List<String[]> stages = new ArrayList<>();
+                List<RedirectionInfo> redirects = new ArrayList<>();
+                int start = 0;
+                for (int pos : pipePositions) {
+                    String[] part = Arrays.copyOfRange(words, start, pos);
+                    RedirectionInfo r = parseRedirection(part);
+                    if (r != null) part = removeRedirectionTokens(part);
+                    stages.add(part);
+                    redirects.add(r);
+                    start = pos + 1;
+                }
+                String[] lastPart = Arrays.copyOfRange(words, start, words.length);
+                RedirectionInfo rlast = parseRedirection(lastPart);
+                if (rlast != null) lastPart = removeRedirectionTokens(lastPart);
+                stages.add(lastPart);
+                redirects.add(rlast);
 
-            if (pipeIndex != -1) {
-                String[] left = Arrays.copyOfRange(words, 0, pipeIndex);
-                String[] right = Arrays.copyOfRange(words, pipeIndex + 1, words.length);
-                RedirectionInfo leftRedirect = parseRedirection(left);
-                if (leftRedirect != null) left = removeRedirectionTokens(left);
-                RedirectionInfo rightRedirect = parseRedirection(right);
-                if (rightRedirect != null) right = removeRedirectionTokens(right);
+                // validate
+                boolean valid = true;
+                for (String[] s : stages) if (s.length == 0) valid = false;
+                if (!valid) continue;
 
-                if (left.length == 0 || right.length == 0) continue;
-                // Only support pipelines of external commands for now
-                runPipeline(left, right, leftRedirect, rightRedirect);
+                runPipelineChain(stages, redirects);
                 continue;
             }
 
