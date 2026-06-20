@@ -324,8 +324,8 @@ public class Main {
             pb2.directory(new File(currentDir));
 
             // set PATH so executables can find relative resources
-            String foundDir1 = new File(leftExec).getParent();
-            String foundDir2 = new File(rightExec).getParent();
+            String foundDir1 = leftExec != null ? new File(leftExec).getParent() : null;
+            String foundDir2 = rightExec != null ? new File(rightExec).getParent() : null;
             String origPath = System.getenv("PATH"); if (origPath == null) origPath = "";
             if (foundDir1 != null && !foundDir1.isEmpty()) pb1.environment().put("PATH", foundDir1 + File.pathSeparator + origPath);
             if (foundDir2 != null && !foundDir2.isEmpty()) pb2.environment().put("PATH", foundDir2 + File.pathSeparator + origPath);
