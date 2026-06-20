@@ -39,7 +39,27 @@ public class Main {
             String[] words = tokenize(trimmed);
             if (words.length == 0) continue;
 
-            // Parse redirection from tokens
+            // Handle pipeline (single | between two commands)
+            int pipeIndex = -1;
+            for (int i = 0; i < words.length; i++) {
+                if ("|".equals(words[i])) { pipeIndex = i; break; }
+            }
+
+            if (pipeIndex != -1) {
+                String[] left = Arrays.copyOfRange(words, 0, pipeIndex);
+                String[] right = Arrays.copyOfRange(words, pipeIndex + 1, words.length);
+                RedirectionInfo leftRedirect = parseRedirection(left);
+                if (leftRedirect != null) left = removeRedirectionTokens(left);
+                RedirectionInfo rightRedirect = parseRedirection(right);
+                if (rightRedirect != null) right = removeRedirectionTokens(right);
+
+                if (left.length == 0 || right.length == 0) continue;
+                // Only support pipelines of external commands for now
+                runPipeline(left, right, leftRedirect, rightRedirect);
+                continue;
+            }
+
+            // Parse redirection from tokens for non-pipeline commands
             RedirectionInfo redirect = parseRedirection(words);
             if (redirect != null) {
                 // Remove redirection tokens from words
@@ -273,6 +293,100 @@ public class Main {
             process.waitFor();
         } catch (IOException | InterruptedException e) {
             System.out.println(command + ": failed to execute (" + e.getMessage() + ")");
+        }
+    }
+
+    // Run a pipeline of two external commands: left | right
+    private static void runPipeline(String[] leftWords, String[] rightWords, RedirectionInfo leftRedirect, RedirectionInfo rightRedirect) {
+        try {
+            String leftCmd = leftWords[0];
+            String rightCmd = rightWords[0];
+            String leftExec = getExecutable(leftCmd);
+            String rightExec = getExecutable(rightCmd);
+            if (leftExec == null || rightExec == null) {
+                System.out.println("command: not found");
+                return;
+            }
+
+            List<String> leftList = new ArrayList<>();
+            String leftProg = leftCmd.contains(File.separator) ? leftCmd : new File(leftCmd).getName();
+            leftList.add(leftProg);
+            for (int i = 1; i < leftWords.length; i++) leftList.add(leftWords[i]);
+
+            List<String> rightList = new ArrayList<>();
+            String rightProg = rightCmd.contains(File.separator) ? rightCmd : new File(rightCmd).getName();
+            rightList.add(rightProg);
+            for (int i = 1; i < rightWords.length; i++) rightList.add(rightWords[i]);
+
+            ProcessBuilder pb1 = new ProcessBuilder(leftList);
+            ProcessBuilder pb2 = new ProcessBuilder(rightList);
+            pb1.directory(new File(currentDir));
+            pb2.directory(new File(currentDir));
+
+            // set PATH so executables can find relative resources
+            String foundDir1 = new File(leftExec).getParent();
+            String foundDir2 = new File(rightExec).getParent();
+            String origPath = System.getenv("PATH"); if (origPath == null) origPath = "";
+            if (foundDir1 != null && !foundDir1.isEmpty()) pb1.environment().put("PATH", foundDir1 + File.pathSeparator + origPath);
+            if (foundDir2 != null && !foundDir2.isEmpty()) pb2.environment().put("PATH", foundDir2 + File.pathSeparator + origPath);
+
+            // Ensure parent dirs for any redirection targets
+            if (leftRedirect != null) { File f = new File(leftRedirect.outputFile); File p = f.getParentFile(); if (p!=null && !p.exists()) p.mkdirs(); }
+            if (rightRedirect != null) { File f = new File(rightRedirect.outputFile); File p = f.getParentFile(); if (p!=null && !p.exists()) p.mkdirs(); }
+
+            // pb1 output -> pipe unless leftRedirect stdout specified
+            if (leftRedirect != null && leftRedirect.fd == 1) {
+                File f = new File(leftRedirect.outputFile);
+                if (leftRedirect.append) pb1.redirectOutput(ProcessBuilder.Redirect.appendTo(f)); else pb1.redirectOutput(f);
+            } else {
+                pb1.redirectOutput(ProcessBuilder.Redirect.PIPE);
+            }
+            // pb1 stderr
+            if (leftRedirect != null && leftRedirect.fd == 2) {
+                File f = new File(leftRedirect.outputFile);
+                if (leftRedirect.append) pb1.redirectError(ProcessBuilder.Redirect.appendTo(f)); else pb1.redirectError(f);
+            } else pb1.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+            // pb2 input from pipe unless rightRedirect specifies stdin? we always pipe
+            pb2.redirectInput(ProcessBuilder.Redirect.PIPE);
+            // pb2 stdout -> file or inherit
+            if (rightRedirect != null && rightRedirect.fd == 1) {
+                File f = new File(rightRedirect.outputFile);
+                if (rightRedirect.append) pb2.redirectOutput(ProcessBuilder.Redirect.appendTo(f)); else pb2.redirectOutput(f);
+            } else pb2.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            // pb2 stderr
+            if (rightRedirect != null && rightRedirect.fd == 2) {
+                File f = new File(rightRedirect.outputFile);
+                if (rightRedirect.append) pb2.redirectError(ProcessBuilder.Redirect.appendTo(f)); else pb2.redirectError(f);
+            } else pb2.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+            Process p1 = pb1.start();
+            Process p2 = pb2.start();
+
+            // Pump p1 stdout -> p2 stdin
+            Thread pump = new Thread(() -> {
+                try (java.io.InputStream in = p1.getInputStream(); java.io.OutputStream out = p2.getOutputStream()) {
+                    byte[] buf = new byte[8192];
+                    int r;
+                    while ((r = in.read(buf)) >= 0) {
+                        if (r > 0) out.write(buf, 0, r);
+                        out.flush();
+                    }
+                } catch (IOException e) {
+                    // ignore
+                } finally {
+                    try { p2.getOutputStream().close(); } catch (Exception e) {}
+                }
+            });
+            pump.start();
+
+            // wait for processes
+            int s2 = p2.waitFor();
+            // after p2 exits, ensure p1 is destroyed if still running
+            try { p1.waitFor(); } catch (InterruptedException e) { p1.destroy(); }
+            pump.join();
+        } catch (IOException | InterruptedException e) {
+            System.out.println("pipeline failed: " + e.getMessage());
         }
     }
 
