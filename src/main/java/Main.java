@@ -52,7 +52,11 @@ public class Main {
                 break;
             } else if (Objects.equals(command, "echo")) {
                 String output = String.join(" ", rest);
-                if (redirect != null && redirect.fd == 1) {
+                if (redirect != null && redirect.fd == 2) {
+                    // Create the stderr redirection target even if echo produces no stderr
+                    ensureEmptyFile(redirect.outputFile);
+                    System.out.println(output);
+                } else if (redirect != null && redirect.fd == 1) {
                     writeToFile(output, redirect.outputFile);
                 } else {
                     System.out.println(output);
@@ -64,13 +68,19 @@ public class Main {
                 } else {
                     output = "";
                 }
-                if (redirect != null && redirect.fd == 1) {
+                if (redirect != null && redirect.fd == 2) {
+                    ensureEmptyFile(redirect.outputFile);
+                    System.out.println(output);
+                } else if (redirect != null && redirect.fd == 1) {
                     writeToFile(output, redirect.outputFile);
                 } else {
                     System.out.println(output);
                 }
             } else if (Objects.equals(command, "pwd")) {
-                if (redirect != null && redirect.fd == 1) {
+                if (redirect != null && redirect.fd == 2) {
+                    ensureEmptyFile(redirect.outputFile);
+                    System.out.println(currentDir);
+                } else if (redirect != null && redirect.fd == 1) {
                     writeToFile(currentDir, redirect.outputFile);
                 } else {
                     System.out.println(currentDir);
@@ -324,6 +334,19 @@ public class Main {
             writer.close();
         } catch (IOException e) {
             System.err.println("Error writing to file: " + e.getMessage());
+        }
+    }
+
+    // Create or truncate a file to zero length, ensuring parent directories exist
+    private static void ensureEmptyFile(String filename) {
+        try {
+            File f = new File(filename);
+            File parent = f.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            // Create or truncate file
+            new java.io.FileOutputStream(f, false).close();
+        } catch (IOException e) {
+            System.err.println("Error creating file: " + e.getMessage());
         }
     }
 }
