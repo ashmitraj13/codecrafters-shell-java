@@ -52,7 +52,7 @@ public class Main {
                 break;
             } else if (Objects.equals(command, "echo")) {
                 String output = String.join(" ", rest);
-                if (redirect != null) {
+                if (redirect != null && redirect.fd == 1) {
                     writeToFile(output, redirect.outputFile);
                 } else {
                     System.out.println(output);
@@ -64,13 +64,13 @@ public class Main {
                 } else {
                     output = "";
                 }
-                if (redirect != null) {
+                if (redirect != null && redirect.fd == 1) {
                     writeToFile(output, redirect.outputFile);
                 } else {
                     System.out.println(output);
                 }
             } else if (Objects.equals(command, "pwd")) {
-                if (redirect != null) {
+                if (redirect != null && redirect.fd == 1) {
                     writeToFile(currentDir, redirect.outputFile);
                 } else {
                     System.out.println(currentDir);
@@ -221,13 +221,24 @@ public class Main {
                 pb.environment().put("PATH", foundDir + File.pathSeparator + origPath);
             }
 
-            // Handle redirection
+            // Ensure parent directory exists for any redirection target
             if (redirect != null) {
+                File outFile = new File(redirect.outputFile);
+                File parent = outFile.getParentFile();
+                if (parent != null && !parent.exists()) parent.mkdirs();
+            }
+
+            // Handle redirection
+            if (redirect != null && redirect.fd == 1) {
                 pb.redirectOutput(new File(redirect.outputFile));
             } else {
                 pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
             }
-            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            if (redirect != null && redirect.fd == 2) {
+                pb.redirectError(new File(redirect.outputFile));
+            } else {
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            }
             pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
             Process process = pb.start();
@@ -271,12 +282,16 @@ public class Main {
         return null;
     }
 
-    // Parse redirection operators (> or 1>) from the token list
+    // Parse redirection operators (>, 1>, 2>) from the token list
     private static RedirectionInfo parseRedirection(String[] words) {
         for (int i = 0; i < words.length; i++) {
-            if (">".equals(words[i]) || "1>".equals(words[i])) {
+            if (">" .equals(words[i]) || "1>".equals(words[i])) {
                 if (i + 1 < words.length) {
                     return new RedirectionInfo(words[i + 1], 1);
+                }
+            } else if ("2>".equals(words[i])) {
+                if (i + 1 < words.length) {
+                    return new RedirectionInfo(words[i + 1], 2);
                 }
             }
         }
@@ -287,7 +302,7 @@ public class Main {
     private static String[] removeRedirectionTokens(String[] words) {
         List<String> result = new ArrayList<>();
         for (int i = 0; i < words.length; i++) {
-            if (">".equals(words[i]) || "1>".equals(words[i])) {
+            if (">" .equals(words[i]) || "1>".equals(words[i]) || "2>".equals(words[i])) {
                 // Skip the operator and the following filename
                 i++; // skip filename
             } else {
@@ -300,7 +315,10 @@ public class Main {
     // Write a string to a file, creating it if it doesn't exist, overwriting if it does
     private static void writeToFile(String content, String filename) {
         try {
-            FileWriter writer = new FileWriter(filename);
+            File f = new File(filename);
+            File parent = f.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            FileWriter writer = new FileWriter(f);
             writer.write(content);
             writer.write("\n");
             writer.close();
