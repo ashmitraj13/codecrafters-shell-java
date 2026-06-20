@@ -92,7 +92,8 @@ public class Main {
         // Tokenize input respecting single and double quotes and backslashes outside quotes.
         // - Whitespace outside quotes splits tokens (consecutive whitespace collapsed)
         // - Backslashes outside quotes escape the next character literally
-        // - Text inside single or double quotes is taken literally (spaces preserved)
+        // - Text inside single quotes is taken literally (spaces preserved)
+        // - Inside double quotes: backslash escapes ", \, $, `, newline; other backslashes are literal
         // - Adjacent quoted and unquoted parts are concatenated into a single token
         private static String[] tokenize(String line) {
             List<String> tokens = new ArrayList<>();
@@ -115,7 +116,22 @@ public class Main {
                         cur.append(c);
                     }
                 } else if (inDouble) {
-                    if (c == '"') {
+                    if (c == '\\') {
+                        // Look ahead to see if we need to escape the next character
+                        if (i + 1 < line.length()) {
+                            char next = line.charAt(i + 1);
+                            // Backslash escapes these chars inside double quotes: " \ $ ` and newline
+                            if (next == '"' || next == '\\' || next == '$' || next == '`' || next == '\n') {
+                                escaped = true;
+                            } else {
+                                // Backslash is literal for other chars
+                                cur.append(c);
+                            }
+                        } else {
+                            // Trailing backslash is literal
+                            cur.append(c);
+                        }
+                    } else if (c == '"') {
                         inDouble = false;
                     } else {
                         cur.append(c);
