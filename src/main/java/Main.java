@@ -89,8 +89,9 @@ public class Main {
         sc.close();
     }
 
-        // Tokenize input respecting single and double quotes.
+        // Tokenize input respecting single and double quotes and backslashes outside quotes.
         // - Whitespace outside quotes splits tokens (consecutive whitespace collapsed)
+        // - Backslashes outside quotes escape the next character literally
         // - Text inside single or double quotes is taken literally (spaces preserved)
         // - Adjacent quoted and unquoted parts are concatenated into a single token
         private static String[] tokenize(String line) {
@@ -98,8 +99,15 @@ public class Main {
             StringBuilder cur = new StringBuilder();
             boolean inSingle = false;
             boolean inDouble = false;
+            boolean escaped = false;
             for (int i = 0; i < line.length(); i++) {
                 char c = line.charAt(i);
+                if (escaped) {
+                    cur.append(c);
+                    escaped = false;
+                    continue;
+                }
+
                 if (inSingle) {
                     if (c == '\'') {
                         inSingle = false;
@@ -113,7 +121,9 @@ public class Main {
                         cur.append(c);
                     }
                 } else {
-                    if (c == '\'') {
+                    if (c == '\\') {
+                        escaped = true;
+                    } else if (c == '\'') {
                         inSingle = true;
                     } else if (c == '"') {
                         inDouble = true;
@@ -128,10 +138,11 @@ public class Main {
                     }
                 }
             }
-            // If still in single or double quote at end, treat as having taken all remaining literally
-            if (inSingle || inDouble) {
-                // nothing special to do; unclosed quotes collapse to end of line
+            if (escaped) {
+                // Trailing backslash escapes nothing, preserve it literally
+                cur.append('\\');
             }
+            // If still in single or double quote at end, take remaining text literally
             if (cur.length() > 0) tokens.add(cur.toString());
             return tokens.toArray(new String[0]);
         }
