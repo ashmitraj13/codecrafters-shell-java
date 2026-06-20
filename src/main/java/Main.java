@@ -253,6 +253,8 @@ public class Main {
                 } else {
                     System.out.println(currentDir);
                 }
+            } else if (Objects.equals(command, "jobs")) {
+                // Registered as a builtin; empty implementation for now
             } else if (Objects.equals(command, "cd")) {
                 if (rest.length > 0) {
                     String target = rest[0];
@@ -588,7 +590,7 @@ public class Main {
     }
 
     private static boolean isBuiltin(String cmd) {
-        return Arrays.asList("exit", "echo", "type", "pwd", "cd").contains(cmd);
+        return Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs").contains(cmd);
     }
 
     // Execute a builtin and write its stdout to the provided OutputStream
@@ -627,7 +629,7 @@ public class Main {
     }
 
     public static String type(String command) {
-        String[] commands = {"exit", "echo", "type", "pwd", "cd"};
+        String[] commands = {"exit", "echo", "type", "pwd", "cd", "jobs"};
         for (String text : commands) {
             if (Objects.equals(text, command)) return command + " is a shell builtin";
         }
