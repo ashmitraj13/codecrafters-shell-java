@@ -175,6 +175,7 @@ public class Main {
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
         while (true) {
+            reapJobs();
             System.out.print("$ ");
             System.out.flush();
 
@@ -278,6 +279,7 @@ public class Main {
                     System.out.println(currentDir);
                 }
             } else if (Objects.equals(command, "jobs")) {
+                reapJobs();
                 // Find max and second-max job IDs in current list for dynamic marker assignment
                 int maxJobId = -1;
                 int secondMaxJobId = -1;
@@ -290,21 +292,14 @@ public class Main {
                     }
                 }
                 
-                List<Job> jobsToRemove = new ArrayList<>();
                 for (Job job : jobs) {
-                    boolean isRunning = job.process.isAlive();
-                    String status = isRunning ? "Running" : "Done";
+                    String status = "Running";
                     String marker;
                     if (job.id == maxJobId) marker = "+";
                     else if (job.id == secondMaxJobId) marker = "-";
                     else marker = " ";
-                    String suffix = isRunning ? " &" : "";
-                    System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + suffix);
-                    if (!isRunning) {
-                        jobsToRemove.add(job);
-                    }
+                    System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + " &");
                 }
-                jobs.removeAll(jobsToRemove);
             } else if (Objects.equals(command, "cd")) {
                 if (rest.length > 0) {
                     String target = rest[0];
@@ -685,7 +680,33 @@ public class Main {
     private static String quote(String s) {
         return "'" + s.replace("'", "'\\''") + "'";
     }
-
+    // Reap completed background jobs: display as Done, then remove from table
+    private static void reapJobs() {
+        // Find max and second-max job IDs in current list for dynamic marker assignment
+        int maxJobId = -1;
+        int secondMaxJobId = -1;
+        for (Job job : jobs) {
+            if (job.id > maxJobId) {
+                secondMaxJobId = maxJobId;
+                maxJobId = job.id;
+            } else if (job.id > secondMaxJobId) {
+                secondMaxJobId = job.id;
+            }
+        }
+        
+        List<Job> jobsToRemove = new ArrayList<>();
+        for (Job job : jobs) {
+            if (!job.process.isAlive()) {
+                String marker;
+                if (job.id == maxJobId) marker = "+";
+                else if (job.id == secondMaxJobId) marker = "-";
+                else marker = " ";
+                System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", "Done") + "                 " + job.command);
+                jobsToRemove.add(job);
+            }
+        }
+        jobs.removeAll(jobsToRemove);
+    }
     public static String type(String command) {
         String[] commands = {"exit", "echo", "type", "pwd", "cd", "jobs"};
         for (String text : commands) {
