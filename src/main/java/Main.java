@@ -56,7 +56,8 @@ public class Main {
                 String output = String.join(" ", rest);
                 if (redirect != null && redirect.fd == 2) {
                     // Create the stderr redirection target even if echo produces no stderr
-                    ensureEmptyFile(redirect.outputFile);
+                    if (redirect.append) ensureFileExists(redirect.outputFile);
+                    else ensureEmptyFile(redirect.outputFile);
                     System.out.println(output);
                 } else if (redirect != null && redirect.fd == 1) {
                     if (redirect.append) appendToFile(output, redirect.outputFile);
@@ -72,7 +73,8 @@ public class Main {
                     output = "";
                 }
                 if (redirect != null && redirect.fd == 2) {
-                    ensureEmptyFile(redirect.outputFile);
+                    if (redirect.append) ensureFileExists(redirect.outputFile);
+                    else ensureEmptyFile(redirect.outputFile);
                     System.out.println(output);
                 } else if (redirect != null && redirect.fd == 1) {
                     if (redirect.append) appendToFile(output, redirect.outputFile);
@@ -82,7 +84,8 @@ public class Main {
                 }
             } else if (Objects.equals(command, "pwd")) {
                 if (redirect != null && redirect.fd == 2) {
-                    ensureEmptyFile(redirect.outputFile);
+                    if (redirect.append) ensureFileExists(redirect.outputFile);
+                    else ensureEmptyFile(redirect.outputFile);
                     System.out.println(currentDir);
                 } else if (redirect != null && redirect.fd == 1) {
                     if (redirect.append) appendToFile(currentDir, redirect.outputFile);
@@ -378,6 +381,18 @@ public class Main {
             if (parent != null && !parent.exists()) parent.mkdirs();
             // Create or truncate file
             new java.io.FileOutputStream(f, false).close();
+        } catch (IOException e) {
+            System.err.println("Error creating file: " + e.getMessage());
+        }
+    }
+
+    // Ensure a file exists; do not modify its contents if it already exists
+    private static void ensureFileExists(String filename) {
+        try {
+            File f = new File(filename);
+            File parent = f.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            if (!f.exists()) new java.io.FileOutputStream(f, false).close();
         } catch (IOException e) {
             System.err.println("Error creating file: " + e.getMessage());
         }
