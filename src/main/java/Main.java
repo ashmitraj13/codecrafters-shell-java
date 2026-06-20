@@ -154,6 +154,8 @@ public class Main {
         }
     }
 
+    private static int nextJobId = 1;
+
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
         while (true) {
@@ -168,6 +170,12 @@ public class Main {
 
             String[] words = tokenize(trimmed);
             if (words.length == 0) continue;
+
+            boolean background = false;
+            if (words.length > 0 && "&".equals(words[words.length - 1])) {
+                background = true;
+                words = Arrays.copyOf(words, words.length - 1);
+            }
 
             // Handle pipelines with one or more '|' tokens
             List<Integer> pipePositions = new ArrayList<>();
@@ -297,7 +305,7 @@ public class Main {
             } else {
                 String executablePath = getExecutable(command);
                 if (executablePath != null) {
-                    runExternal(command, executablePath, rest, redirect);
+                    runExternal(command, executablePath, rest, redirect, background);
                 } else {
                     System.out.println(command + ": not found");
                 }
@@ -380,7 +388,7 @@ public class Main {
             return tokens.toArray(new String[0]);
         }
 
-    private static void runExternal(String command, String executablePath, String[] args, RedirectionInfo redirect) {
+    private static void runExternal(String command, String executablePath, String[] args, RedirectionInfo redirect, boolean background) {
         try {
             List<String> cmd = new ArrayList<>();
             String progName = command.contains(File.separator) ? command : new File(command).getName();
@@ -432,6 +440,11 @@ public class Main {
             pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
             Process process = pb.start();
+            if (background) {
+                int jobId = nextJobId++;
+                System.out.println("[" + jobId + "] " + process.pid());
+                return;
+            }
             process.waitFor();
         } catch (IOException | InterruptedException e) {
             System.out.println(command + ": failed to execute (" + e.getMessage() + ")");
