@@ -278,14 +278,21 @@ public class Main {
                     System.out.println(currentDir);
                 }
             } else if (Objects.equals(command, "jobs")) {
+                List<Job> jobsToRemove = new ArrayList<>();
                 for (Job job : jobs) {
-                    String status = job.process.isAlive() ? "Running" : "Done";
+                    boolean isRunning = job.process.isAlive();
+                    String status = isRunning ? "Running" : "Done";
                     String marker;
                     if (job.id == currentJobId) marker = "+";
                     else if (job.id == previousJobId) marker = "-";
                     else marker = " ";
-                    System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + " &");
+                    String suffix = isRunning ? " &" : "";
+                    System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + suffix);
+                    if (!isRunning) {
+                        jobsToRemove.add(job);
+                    }
                 }
+                jobs.removeAll(jobsToRemove);
             } else if (Objects.equals(command, "cd")) {
                 if (rest.length > 0) {
                     String target = rest[0];
