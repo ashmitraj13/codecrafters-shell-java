@@ -24,6 +24,20 @@ public class Main {
         }
     }
 
+    static class Job {
+        int id;
+        Process process;
+        String command;
+
+        Job(int id, Process process, String command) {
+            this.id = id;
+            this.process = process;
+            this.command = command;
+        }
+    }
+
+    private static final List<Job> jobs = new ArrayList<>();
+
     // Run a pipeline with N stages. Supports streaming for external-only pipelines,
     // and a sequential capture fallback when builtins are involved.
     private static void runPipelineChain(List<String[]> stages, List<RedirectionInfo> redirects) {
@@ -262,7 +276,11 @@ public class Main {
                     System.out.println(currentDir);
                 }
             } else if (Objects.equals(command, "jobs")) {
-                // Registered as a builtin; empty implementation for now
+                for (Job job : jobs) {
+                    String status = job.process.isAlive() ? "Running" : "Done";
+                    String marker = job.process.isAlive() ? "+" : " ";
+                    System.out.println("[" + job.id + "]" + marker + "  " + String.format("%-10s", status) + "                 " + job.command + " &");
+                }
             } else if (Objects.equals(command, "cd")) {
                 if (rest.length > 0) {
                     String target = rest[0];
@@ -442,6 +460,7 @@ public class Main {
             Process process = pb.start();
             if (background) {
                 int jobId = nextJobId++;
+                jobs.add(new Job(jobId, process, command + (args.length > 0 ? " " + String.join(" ", args) : "")));
                 System.out.println("[" + jobId + "] " + process.pid());
                 return;
             }
