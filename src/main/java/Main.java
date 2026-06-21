@@ -168,7 +168,7 @@ public class Main {
         }
     }
 
-    private static int nextJobId = 1;
+
     private static int currentJobId = -1;   // Most recently started job
     private static int previousJobId = -1;  // Second most recently started job
 
@@ -492,7 +492,18 @@ public class Main {
 
             Process process = pb.start();
             if (background) {
-                int jobId = nextJobId++;
+                int jobId;
+                if (jobs.isEmpty()) {
+                    jobId = 1;
+                } else {
+                    int maxJobId = 0;
+                    for (Job job : jobs) {
+                        if (job.id > maxJobId) {
+                            maxJobId = job.id;
+                        }
+                    }
+                    jobId = maxJobId + 1;
+                }
                 previousJobId = currentJobId;
                 currentJobId = jobId;
                 jobs.add(new Job(jobId, process, command + (args.length > 0 ? " " + String.join(" ", args) : "")));
